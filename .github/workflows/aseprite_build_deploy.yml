@@ -65,7 +65,7 @@ jobs:
     strategy:
        matrix:
          os: [macOS-latest]
-         build_type: [RelWithDebInfo, Debug]
+         build_type: [RelWithDebInfo]
          enable_ui: [off]
        fail-fast: false    
     steps:
@@ -113,7 +113,7 @@ jobs:
           -DENABLE_UI=${{ matrix.enable_ui }} \
           -DENABLE_CCACHE=$enable_ccache
     - name: Compiling|Run Ninja
-      working-directory: aseprite/build
+      working-directory: aseprite
       shell: bash
       run: |
         cd build && ninja
