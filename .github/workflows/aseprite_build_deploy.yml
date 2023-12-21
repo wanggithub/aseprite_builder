@@ -64,7 +64,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
        matrix:
-         os: [windows-latest, macOS-latest]
+         os: [macOS-latest]
          build_type: [RelWithDebInfo, Debug]
          enable_ui: [off]
        fail-fast: false    
@@ -74,12 +74,15 @@ jobs:
       if: ${{ runner.os == 'Linux' || runner.os == 'macOS' }}
       with:
         key: ${{ matrix.os }}-${{ matrix.enable_ui }}-${{ matrix.build_type }}
+    - name: (macOS) Install dependencies
+      if: matrix.os == 'macOS-latest'
+      run: brew install p7zip
     - name: Download Aseprite release
       run: |
         curl -o Aseprite-source.zip -L ${{ needs.check-version.outputs.download_url }}
         unzip Aseprite-source.zip -d aseprite
         mkdir -p aseprite/build
-        - uses: turtlesec-no/get-ninja@main
+    - uses: turtlesec-no/get-ninja@main
     - uses: ilammy/msvc-dev-cmd@v1
       if: runner.os == 'Windows'
     - name: Workaround for windows-2022 and cmake 3.25.0
