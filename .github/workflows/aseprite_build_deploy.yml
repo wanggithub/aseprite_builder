@@ -64,35 +64,40 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
        matrix:
-         os: [macOS-latest]
+         os: [windows-latest, macOS-latest]
+         build_type: [RelWithDebInfo, Debug]
+         enable_ui: [off]
        fail-fast: false    
     steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: 'recursive'
-    - name: ccache
-      uses: hendrikmuhs/ccache-action@v1
-      if: ${{ runner.os == 'Linux' || runner.os == 'macOS' }}
-      with:
-        key: ${{ matrix.os }}-${{ matrix.enable_ui }}-${{ matrix.build_type }}
-    - uses: turtlesec-no/get-ninja@main
-    - uses: ilammy/msvc-dev-cmd@v1
-      if: runner.os == 'Windows'
-    - name: Workaround for windows-2022 and cmake 3.25.0
-      if: runner.os == 'Windows'
-      shell: bash
-      run: rm -rf C:/Strawberry/
-    - name: Install Dependencies
-      shell: bash
-      run: |
-        if [[ "${{ runner.os }}" == "Linux" ]] ; then
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            libx11-dev libxcursor-dev libxi-dev
-        fi
-    - name: Generating Makefiles
-      shell: bash
-      run: |
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1
+        if: ${{ runner.os == 'Linux' || runner.os == 'macOS' }}
+        with:
+          key: ${{ matrix.os }}-${{ matrix.enable_ui }}-${{ matrix.build_type }}
+      - name: Download Aseprite release
+        run: |
+          curl -o Aseprite-source.zip -L ${{ needs.check-version.outputs.download_url }}
+          unzip Aseprite-source.zip -d aseprite
+          mkdir -p aseprite/build
+          - uses: turtlesec-no/get-ninja@main
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Workaround for windows-2022 and cmake 3.25.0
+        if: runner.os == 'Windows'
+        shell: bash
+        run: rm -rf C:/Strawberry/
+      - name: Install Dependencies
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]] ; then
+            sudo apt-get update -qq
+            sudo apt-get install -y \
+              libx11-dev libxcursor-dev libxi-dev
+          fi
+      - name: Run CMake
+        shell: bash
+        working-directory: aseprite
+        run: |
         if [[ "${{ runner.os }}" == "Windows" ]] ; then
           export enable_ccache=off
         else
@@ -104,23 +109,35 @@ jobs:
           -DENABLE_TESTS=ON \
           -DENABLE_UI=${{ matrix.enable_ui }} \
           -DENABLE_CCACHE=$enable_ccache
-    - name: Compiling
+      - name: Compiling|Run Ninja
+        working-directory: aseprite/build
+        shell: bash
+        run: |
+          cd build && ninja
+      - name: Running C++ Tests
       shell: bash
-      run: |
-        cd build && ninja
-    - name: Running C++ Tests
-      shell: bash
-      run: |
-        if [[ "${{ runner.os }}" == "Linux" ]] ; then
-          export XVFB=xvfb-run
-        fi
-        cd build && $XVFB ctest --output-on-failure
-    - name: Running CLI Tests
-      shell: bash
+      working-directory: aseprite
       run: |
         if [[ "${{ runner.os }}" == "Linux" ]] ; then
           export XVFB=xvfb-run
         fi
-        export ASEPRITE=$PWD/build/bin/aseprite
-        cd tests
-        $XVFB bash run-tests.sh
+        cd build && $XVFB ctest --output-on-failure    
+      - name: Clean up build
+        working-directory: aseprite/build/bin
+        shell: bash
+        run: rm -f gen modp_b64_gen gen.exe gen.exe.manifest modp_b64_gen.exe modp_b64_gen.exe.manifest
+      - name: (Windows) Make portable zip
+        working-directory: aseprite/build/bin
+        run: echo '# This file is here so Aseprite behaves as a portable program' > aseprite.ini
+      - name: Create release
+        working-directory: aseprite/build/bin
+        run: 7z -tzip a Aseprite-${{ needs.check-version.outputs.latest_tag }}-${{ runner.os }}.zip *
+      - name: Upload release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.check-version.outputs.upload_url }}
+          asset_path: aseprite/build/bin/Aseprite-${{ needs.check-version.outputs.latest_tag }}-${{ runner.os }}.zip
+          asset_name: Aseprite-${{ needs.check-version.outputs.latest_tag }}-${{ runner.os }}.zip
+          asset_content_type: application/zip
