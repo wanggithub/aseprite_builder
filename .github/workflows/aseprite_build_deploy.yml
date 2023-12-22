@@ -3,7 +3,7 @@ name: Build and deploy Aseprite
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 * * * *'
+    - cron: '30 0 * * *'
   push:
     branches:
       - master
@@ -65,8 +65,8 @@ jobs:
     strategy:
        matrix:
          os: [macOS-latest]
-         build_type: [RelWithDebInfo]
-         enable_ui: [on]
+         build_type: [RelWithDebInfo, Debug]
+         enable_ui: [off]
        fail-fast: false    
     steps:
     - name: ccache
@@ -77,6 +77,17 @@ jobs:
     - name: (macOS) Install dependencies
       if: matrix.os == 'macOS-latest'
       run: brew install p7zip
+    - name: Get Skia from cache
+      id: skia-cache
+      uses: actions/cache@v2
+      with:
+        path: skia
+        key: skia-${{ matrix.os }}-cache
+    - name: Download Skia if not in cache
+      if: steps.skia-cache.outputs.cache-hit != 'true'
+      run: |
+        curl -o Skia-${{ runner.os }}-Release-X64.zip -L https://github.com/aseprite/skia/releases/download/m102-861e4743af/Skia-${{ runner.os }}-Release-X64.zip
+        unzip Skia-${{ runner.os }}-Release-X64.zip -d skia
     - name: Download Aseprite release
       run: |
         curl -o Aseprite-source.zip -L ${{ needs.check-version.outputs.download_url }}
@@ -97,26 +108,22 @@ jobs:
           sudo apt-get install -y \
             libx11-dev libxcursor-dev libxi-dev
         fi
-    - name: Run CMake
-      shell: bash
-      working-directory: aseprite
-      run: |
-        if [[ "${{ runner.os }}" == "Windows" ]] ; then
-          export enable_ccache=off
-        else
-          export enable_ccache=on
-        fi
-        cmake -S . -B build -G Ninja \
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 \
-          -DENABLE_TESTS=ON \
-          -DENABLE_UI=${{ matrix.enable_ui }} \
-          -DENABLE_CCACHE=$enable_ccache
-    - name: Compiling|Run Ninja
-      working-directory: aseprite
-      shell: bash
-      run: |
-        cd build && ninja
+    - name: (macOS) Run CMake
+      if: matrix.os == 'macOS-latest'
+      working-directory: aseprite/build
+      run: cmake \
+        -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+        -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 \
+        -DCMAKE_OSX_SYSROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.15.sdk \
+        -DLAF_BACKEND=skia \
+        -DSKIA_DIR=$HOME/deps/skia \
+        -DSKIA_LIBRARY_DIR=$HOME/deps/skia/out/Release-x64 \
+        -DSKIA_LIBRARY=$HOME/deps/skia/out/Release-x64/libskia.a \
+        -G Ninja ..
+    - name: Run Ninja
+      working-directory: aseprite/build
+      run: ninja aseprite
     - name: Running C++ Tests
       shell: bash
       working-directory: aseprite
